@@ -1,0 +1,7 @@
+project_id           = "<project_id>"
+management_bucket    = "<project_id>-management"
+region               = "europe-west2"
+landing_bucket_name  = "wecftobq"
+staging_dataset_name = "cftobqusecase1"
+staging_table        = "persons"
+staging_function     = "cftobq"

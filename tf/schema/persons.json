@@ -1,0 +1,20 @@
+[
+    {
+      "name": "name",
+      "type": "STRING",
+      "mode": "NULLABLE",
+      "description": "Name of the Person"
+    },
+    {
+      "name": "age",
+      "type": "INTEGER",
+      "mode": "NULLABLE",
+      "description": "Age of the Person"
+    },
+    {
+        "name": "postcode",
+        "type": "STRING",
+        "mode": "NULLABLE",
+        "description": "postcode of address"
+    }
+  ]

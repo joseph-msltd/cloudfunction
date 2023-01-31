@@ -1,0 +1,125 @@
+README:
+
+Title:
+------
+CSV files are read by CF and updated in BQ table.
+
+Steps:
+------
+1. CSV File ingested in GCS(lets call bucket 'wecftobq')
+2. CF triggered on creation of a file in bucket 'wecftobq'
+3. CF reads the file and updates in BQ Table
+
+Expected Output:
+----------------
+Drop a file in the bucket called wecftobq, see the contents in BQ table called cftobqusecase1.persons
+Error handling is not included in this use case, dont ingest errored csv files(validation handled in use-case-2)
+
+Resources:
+----------
+gcloud auth login
+gcloud auth application-default login
+
+export PROJECT_ID=<project_id>
+
+gcloud iam service-accounts keys create --iam-account "<project_id>@appspot.gserviceaccount.com" service-account.json
+gcloud auth activate-service-account --key-file ~/service-account.json
+gsutil config
+PROJECT_ID=$(gcloud config get-value project)
+
+PROJECT_NUMBER=$(gcloud projects list --filter="project_id:$PROJECT_ID" --format='value(project_number)')
+
+SERVICE_ACCOUNT=$(gsutil kms serviceaccount -p $PROJECT_NUMBER)
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+  --member serviceAccount:$SERVICE_ACCOUNT \
+  --role roles/pubsub.publisher
+
+1. 
+-Create a bucket called wecftobq
+gcloud storage buckets create gs://wecftobq  --default-storage-class=Standard --location=europe-west2 --uniform-bucket-level-access
+-upload the file from test-input in to this bucket
+gsutil cp test-input/test.csv gs://wecftobq
+
+2. Create a BQ Dataset:
+bq --location=europe-west2 mk --dataset cftobqusecase1
+
+3. Create a BQ table with defined schema
+bq mk -t --description "use-case-1 table" $PROJECT_ID:cftobqusecase1.persons \
+name:STRING,age:INTEGER,postcode:STRING
+
+4. Create a CF with code to update the table
+cf: cf-to-bq.py
+Algorithm:
+    a. receive csv filename is cf trigger event
+    b. read csv file content using filename from trigger
+    c. iterate the rows and create a array
+    d. use bq client and write the rows in the table
+
+5. Create a CF trigger to GCS bucket
+gcloud functions deploy cftobq \
+  --gen2 \
+  --region=europe-west2 \
+  --runtime=python39 \
+  --source=./cf/ \
+  --entry-point=bq_write \
+  --set-env-vars project_id=$PROJECT_ID,dataset_name=cftobqusecase1,table_name=persons \
+  --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+  --trigger-event-filters="bucket=wecftobq"
+
+
+Test:
+-----
+1) Upload file from test-input in bucket wecftobq.
+2) query the bq tables and verify the file content
+
+Test Setup:
+-----------
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+Functions-Framework:
+functions-framework --target=hello_pubsub --debug --signature-type=event --port=8080
+
+cd cloudfunction/test-input/
+
+curl localhost:8080 \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -H "ce-id: 123451234512345" \
+  -H "ce-specversion: 1.0" \
+  -H "ce-time: 2020-01-02T12:34:56.789Z" \
+  -H "ce-type: google.cloud.storage.object.v1.finalized" \
+  -H "ce-source: //storage.googleapis.com/projects/_/buckets/MY-BUCKET-NAME" \
+  -H "ce-subject: objects/MY_FILE.txt" \
+  -d '{
+        "bucket": "wecftobq",
+        "contentType": "text/plain",
+        "kind": "storage#object",
+        "md5Hash": "...",
+        "metageneration": "1",
+        "name": "test.csv",
+        "size": "352",
+        "storageClass": "MULTI_REGIONAL",
+        "timeCreated": "2020-04-23T07:38:57.230Z",
+        "timeStorageClassUpdated": "2020-04-23T07:38:57.230Z",
+        "updated": "2020-04-23T07:38:57.230Z"
+      }'
+
+Teardown:
+---------
+
+1. Delete the cloud functions:
+gcloud functions delete cftobq  --gen2 --region=europe-west2
+
+2. Delete the bucket:
+gsutil rm -r gs://wecftobq
+
+3. Delete Dataset and tables inside it:
+bq rm -r -f -d $PROJECT_ID:cftobqusecase1
+
+
+Terraform:
+Create state management file:
+gcloud storage buckets create gs://<project_id>-management  --default-storage-class=Standard --location=europe-west2 --uniform-bucket-level-access
